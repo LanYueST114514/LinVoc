@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UTAU音源oto编辑工具</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            left: '#1e40af',
+            right: '#1e40af',
+            overlap: '#16a34a',
+            preutterance: '#dc2626',
+            fixed: '#db2777',
+            velocity: '#9333ea',
+          },
+        },
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .oto-item-selected { @apply bg-blue-100 border-l-4 border-left; }
+      input[type="range"]::-webkit-slider-thumb { @apply appearance-none w-4 h-4 rounded-full cursor-pointer; }
+      .slider-left::-webkit-slider-thumb { @apply bg-left; }
+      .slider-right::-webkit-slider-thumb { @apply bg-right; }
+      .slider-overlap::-webkit-slider-thumb { @apply bg-overlap; }
+      .slider-preutterance::-webkit-slider-thumb { @apply bg-preutterance; }
+      .slider-fixed::-webkit-slider-thumb { @apply bg-fixed; }
+      .slider-velocity::-webkit-slider-thumb { @apply bg-velocity; }
+      .hidden-initial { display: none; }
+      .param-error { @apply border-red-500 ring-1 ring-red-500; }
+      .linvoc-icon {
+        font-family: Arial, sans-serif;
+        font-weight: bold;
+        font-size: 24px;
+        color: white;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+      }
+    }
+  </style>
+</head>
+<body class="bg-gray-100 font-sans">
+<header class="bg-gray-800 text-white p-4 shadow-md">
+  <div class="max-w-7xl mx-auto flex items-center justify-between">
+    <div class="flex items-center space-x-4">
+      <div class="linvoc-icon">LinVoc</div>
+    </div>
+    <div class="relative">
+      <button id="menuButton" class="p-2 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+        </svg>
+      </button>
+      <div id="languageMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-10">
+        <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" onclick="setLanguage('zh')">中文</a>
+        <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" onclick="setLanguage('en')">English</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto p-4 pb-20">
+  <div id="importSection" class="mb-6 border rounded-lg shadow-sm bg-white">
+    <div class="p-4 bg-gray-50 rounded-t-lg">
+      <h2 class="text-xl font-semibold" data-i18n="importTitle">导入音源压缩包</h2>
+    </div>
+    <div class="p-4 border-t">
+      <div class="flex flex-col gap-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2" data-i18n="selectZip">选择音源ZIP压缩包</label>
+          <input type="file" id="zipUpload" accept=".zip" class="block w-full file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+        </div>
+        <div id="folderSelectContainer" class="hidden">
+          <label class="block text-sm font-medium text-gray-700 mb-2" data-i18n="selectFolder">选择文件夹（包含WAV文件）</label>
+          <select id="folderSelect" class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border">
+            <option value="">请先选择文件夹</option>
+          </select>
+        </div>
+        <div id="importBtnContainer" class="hidden">
+          <button id="importBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg" data-i18n="importButton">导入选中文件夹</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="otoListSection" class="mb-6 border rounded-lg shadow-sm bg-white hidden-initial">
+    <div class="p-4 bg-gray-50 rounded-t-lg">
+      <h2 class="text-xl font-semibold" data-i18n="otoListTitle">oto记录列表</h2>
+    </div>
+    <div class="p-4 border-t">
+      <div class="flex flex-wrap gap-2 mb-4">
+        <button id="applyExistingOtoBtn" class="bg-orange-600 hover:bg-orange-700 text-white font-medium py-1 px-3 rounded text-sm hidden" data-i18n="applyExistingOto">应用现有oto.ini配置</button>
+        <button id="aiAnalyzeAllBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-medium py-1 px-3 rounded text-sm" data-i18n="aiAnalyzeAll">一键AI设置所有记录</button>
+      </div>
+      <div class="overflow-x-auto max-h-96 overflow-y-auto border rounded-lg">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50 sticky top-0">
+            <tr>
+              <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="aliasCol">别名</th>
+              <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="fileNameCol">原文件</th>
+              <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="leftCol">左空白</th>
+              <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="rightCol">右空白</th>
+              <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="overlapCol">重叠</th>
+              <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="preutteranceCol">预发音</th>
+              <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="fixedCol">固定</th>
+              <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="velocityCol">速度</th>
+            </tr>
+          </thead>
+          <tbody id="otoListBody" class="bg-white divide-y divide-gray-200">
+            <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500" data-i18n="noOtoRecords">请先导入音源压缩包</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="editSection" class="mb-6 border rounded-lg shadow-sm bg-white hidden-initial">
+    <div class="p-4 bg-gray-50 rounded-t-lg">
+      <h2 class="text-xl font-semibold" data-i18n="editTitle">音频可视化与oto参数编辑</h2>
+    </div>
+    <div class="p-4 border-t">
+      <div class="w-full bg-gray-50 rounded-lg overflow-hidden border mb-6">
+        <canvas id="waveformCanvas" class="w-full h-[350px] md:h-[450px] touch-none"></canvas>
+      </div>
+      <div class="mt-3 flex flex-wrap gap-4 text-sm mb-6">
+        <div class="flex items-center gap-1"><span class="w-3 h-3 bg-left inline-block"></span> <span data-i18n="leftLabel">左空白（L）</span></div>
+        <div class="flex items-center gap-1"><span class="w-3 h-3 bg-right inline-block"></span> <span data-i18n="rightLabel">右空白（R）</span></div>
+        <div class="flex items-center gap-1"><span class="w-3 h-3 bg-overlap inline-block"></span> <span data-i18n="overlapLabel">重叠（O）</span></div>
+        <div class="flex items-center gap-1"><span class="w-3 h-3 bg-preutterance inline-block"></span> <span data-i18n="preutteranceLabel">预发音（P）</span></div>
+        <div class="flex items-center gap-1"><span class="w-3 h-3 bg-fixed inline-block"></span> <span data-i18n="fixedLabel">固定（F）</span></div>
+        <div class="flex items-center gap-1"><span class="w-3 h-3 bg-velocity inline-block"></span> <span data-i18n="velocityLabel">速度（V）</span></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="param-group">
+          <label class="block text-sm font-medium text-left mb-1" data-i18n="leftParam">左空白（L）<span class="ml-2 text-gray-500" data-i18n="leftRange">≥0, ＜音频长度</span></label>
+          <div class="flex gap-3 items-center">
+            <input type="range" id="leftSlider" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider-left" min="0" max="10000" step="0.1" value="0">
+            <input type="number" id="leftInput" class="w-20 rounded-md border-gray-300 shadow-sm focus:border-left focus:ring-left sm:text-sm p-2 border" min="0" step="0.1" value="0">
+            <span class="text-gray-500">ms</span>
+          </div>
+          <div id="leftError" class="text-xs text-red-500 mt-1 hidden"></div>
+        </div>
+        <div class="param-group">
+          <label class="block text-sm font-medium text-right mb-1" data-i18n="rightParam">右空白（R）<span class="ml-2 text-gray-500" data-i18n="rightRange">≥0, ＜音频长度</span></label>
+          <div class="flex gap-3 items-center">
+            <input type="range" id="rightSlider" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider-right" min="0" max="10000" step="0.1" value="0">
+            <input type="number" id="rightInput" class="w-20 rounded-md border-gray-300 shadow-sm focus:border-right focus:ring-right sm:text-sm p-2 border" min="0" step="0.1" value="0">
+            <span class="text-gray-500">ms</span>
+          </div>
+          <div id="rightError" class="text-xs text-red-500 mt-1 hidden"></div>
+        </div>
+        <div class="param-group">
+          <label class="block text-sm font-medium text-overlap mb-1" data-i18n="overlapParam">重叠（O）<span class="ml-2 text-gray-500" data-i18n="overlapRange">≥0, ＜P</span></label>
+          <div class="flex gap-3 items-center">
+            <input type="range" id="overlapSlider" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider-overlap" min="0" max="1000" step="0.1" value="0">
+            <input type="number" id="overlapInput" class="w-20 rounded-md border-gray-300 shadow-sm focus:border-overlap focus:ring-overlap sm:text-sm p-2 border" min="0" step="0.1" value="0">
+            <span class="text-gray-500">ms</span>
+          </div>
+          <div id="overlapError" class="text-xs text-red-500 mt-1 hidden"></div>
+        </div>
+        <div class="param-group">
+          <label class="block text-sm font-medium text-preutterance mb-1" data-i18n="preutteranceParam">预发音（P）<span class="ml-2 text-gray-500" data-i18n="preutteranceRange">＞O, ＜音频有效长度</span></label>
+          <div class="flex gap-3 items-center">
+            <input type="range" id="preutteranceSlider" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider-preutterance" min="0" max="1000" step="0.1" value="0">
+            <input type="number" id="preutteranceInput" class="w-20 rounded-md border-gray-300 shadow-sm focus:border-preutterance focus:ring-preutterance sm:text-sm p-2 border" min="0" step="0.1" value="0">
+            <span class="text-gray-500">ms</span>
+          </div>
+          <div id="preutteranceError" class="text-xs text-red-500 mt-1 hidden"></div>
+        </div>
+        <div class="param-group">
+          <label class="block text-sm font-medium text-fixed mb-1" data-i18n="fixedParam">固定（F）<span class="ml-2 text-gray-500" data-i18n="fixedRange">≥0, ＜音频有效长度</span></label>
+          <div class="flex gap-3 items-center">
+            <input type="range" id="fixedSlider" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider-fixed" min="0" max="1000" step="0.1" value="0">
+            <input type="number" id="fixedInput" class="w-20 rounded-md border-gray-300 shadow-sm focus:border-fixed focus:ring-fixed sm:text-sm p-2 border" min="0" step="0.1" value="0">
+            <span class="text-gray-500">ms</span>
+          </div>
+          <div id="fixedError" class="text-xs text-red-500 mt-1 hidden"></div>
+        </div>
+        <div class="param-group">
+          <label class="block text-sm font-medium text-velocity mb-1" data-i18n="velocityParam">速度（V）<span class="ml-2 text-gray-500" data-i18n="velocityRange">5-400%</span></label>
+          <div class="flex gap-3 items-center">
+            <input type="range" id="velocitySlider" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider-velocity" min="5" max="400" step="0.1" value="100">
+            <input type="number" id="velocityInput" class="w-20 rounded-md border-gray-300 shadow-sm focus:border-velocity focus:ring-velocity sm:text-sm p-2 border" min="5" max="400" step="0.1" value="100">
+            <span class="text-gray-500">%</span>
+          </div>
+          <div id="velocityError" class="text-xs text-red-500 mt-1 hidden"></div>
+        </div>
+        <div class="param-group md:col-span-2">
+          <label class="block text-sm font-medium text-gray-700 mb-1" data-i18n="aliasChange">更改别名</label>
+          <input type="text" id="aliasInput" class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" placeholder="例如：あC4">
+        </div>
+        <div class="param-group md:col-span-2">
+          <button id="aiAnalyzeBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed" disabled data-i18n="aiAnalyzeBtn">AI分析当前音频</button>
+        </div>
+        <div class="param-group md:col-span-2">
+          <div class="flex flex-wrap gap-3 items-center">
+            <button id="playBtn" class="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-6 rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed" disabled data-i18n="playBtn">播放</button>
+            <button id="pauseBtn" class="bg-yellow-600 hover:bg-yellow-700 text-white font-medium py-2 px-6 rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed" disabled data-i18n="pauseBtn">暂停</button>
+            <button id="stopBtn" class="bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-6 rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed" disabled data-i18n="stopBtn">停止</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="exportSection" class="mb-6 border rounded-lg shadow-sm bg-white hidden-initial">
+    <div class="p-4 bg-gray-50 rounded-t-lg">
+      <h2 class="text-xl font-semibold" data-i18n="exportTitle">下载oto</h2>
+    </div>
+    <div class="p-4 border-t">
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2" data-i18n="editorLabel">oto.ini 文本编辑器</label>
+        <textarea id="otoEditor" rows="12" class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border font-mono text-sm" data-i18n-placeholder="editorPlaceholder" placeholder="oto.ini内容将在这里显示"></textarea>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <button id="updateTextBtn" class="bg-teal-600 hover:bg-teal-700 text-white font-medium py-2 px-4 rounded-lg" data-i18n="updateTextBtn">用当前记录更新文本</button>
+        <button id="downloadOtoBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg" data-i18n="downloadOtoBtn">下载oto.ini</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="fixed bottom-0 left-0 right-0 bg-white border-t shadow-md p-3 text-center text-sm text-gray-600 z-50">
+  UTAU音源oto编辑工具
+</footer>
+
+<script>
+  // 语言设置
+  let currentLanguage = 'zh';
+  const translations = {
+    zh: {
+      importTitle: "导入音源压缩包",
+      selectZip: "选择音源ZIP压缩包",
+      selectFolder: "选择文件夹（包含WAV文件）",
+      selectFolderPlaceholder: "请先选择文件夹",
+      importButton: "导入选中文件夹",
+      otoListTitle: "oto记录列表",
+      applyExistingOto: "应用现有oto.ini配置",
+      aiAnalyzeAll: "一键AI设置所有记录",
+      aliasCol: "别名",
+      fileNameCol: "原文件",
+      leftCol: "左空白",
+      rightCol: "右空白",
+      overlapCol: "重叠",
+      preutteranceCol: "预发音",
+      fixedCol: "固定",
+      velocityCol: "速度",
+      noOtoRecords: "请先导入音源压缩包",
+      editTitle: "音频可视化与oto参数编辑",
+      leftLabel: "左空白（L）",
+      rightLabel: "右空白（R）",
+      overlapLabel: "重叠（O）",
+      preutteranceLabel: "预发音（P）",
+      fixedLabel: "固定（F）",
+      velocityLabel: "速度（V）",
+      leftParam: "左空白（L）",
+      leftRange: "≥0, ＜音频长度",
+      rightParam: "右空白（R）",
+      rightRange: "≥0, ＜音频长度",
+      overlapParam: "重叠（O）",
+      overlapRange: "≥0, ＜P",
+      preutteranceParam: "预发音（P）",
+      preutteranceRange: "＞O, ＜音频有效长度",
+      fixedParam: "固定（F）",
+      fixedRange: "≥0, ＜音频有效长度",
+      velocityParam: "速度（V）",
+      velocityRange: "5-400%",
+      aliasChange: "更改别名",
+      aiAnalyzeBtn: "AI分析当前音频",
+      playBtn: "播放",
+      pauseBtn: "暂停",
+      stopBtn: "停止",
+      exportTitle: "下载oto",
+      editorLabel: "oto.ini 文本编辑器",
+      editorPlaceholder: "oto.ini内容将在这里显示",
+      updateTextBtn: "用当前记录更新文本",
+      downloadOtoBtn: "下载oto.ini"
+    },
+    en: {
+      importTitle: "Import Voicebank Archive",
+      selectZip: "Select Voicebank ZIP Archive",
+      selectFolder: "Select Folder (Contains WAV Files)",
+      selectFolderPlaceholder: "Please select a folder first",
+      importButton: "Import Selected Folder",
+      otoListTitle: "Oto Records List",
+      applyExistingOto: "Apply Existing oto.ini Configuration",
+      aiAnalyzeAll: "AI Analyze All Records",
+      aliasCol: "Alias",
+      fileNameCol: "Original File",
+      leftCol: "Left Blank",
+      rightCol: "Right Blank",
+      overlapCol: "Overlap",
+      preutteranceCol: "Preutterance",
+      fixedCol: "Fixed",
+      velocityCol: "Velocity",
+      noOtoRecords: "Please import voicebank archive first",
+      editTitle: "Audio Visualization & Oto Parameter Editing",
+      leftLabel: "Left Blank (L)",
+      rightLabel: "Right Blank (R)",
+      overlapLabel: "Overlap (O)",
+      preutteranceLabel: "Preutterance (P)",
+      fixedLabel: "Fixed (F)",
+      velocityLabel: "Velocity (V)",
+      leftParam: "Left Blank (L)",
+      leftRange: "≥0, <audio length",
+      rightParam: "Right Blank (R)",
+      rightRange: "≥0, <audio length",
+      overlapParam: "Overlap (O)",
+      overlapRange: "≥0, <P",
+      preutteranceParam: "Preutterance (P)",
+      preutteranceRange: ">O, <audio effective length",
+      fixedParam: "Fixed (F)",
+      fixedRange: "≥0, <audio effective length",
+      velocityParam: "Velocity (V)",
+      velocityRange: "5-400%",
+      aliasChange: "Change Alias",
+      aiAnalyzeBtn: "AI Analyze Current Audio",
+      playBtn: "Play",
+      pauseBtn: "Pause",
+      stopBtn: "Stop",
+      exportTitle: "Download Oto",
+      editorLabel: "oto.ini Text Editor",
+      editorPlaceholder: "oto.ini content will be displayed here",
+      updateTextBtn: "Update Text with Current Records",
+      downloadOtoBtn: "Download oto.ini"
+    }
+  };
+
+  // 设置语言函数
+  function setLanguage(lang) {
+    currentLanguage = lang;
+    const trans = translations[lang];
+    
+    // 更新所有有data-i18n属性的元素
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      if (trans[key]) {
+        el.textContent = trans[key];
+      }
+    });
+    
+    // 更新占位符
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+      const key = el.getAttribute('data-i18n-placeholder');
+      if (trans[key]) {
+        el.setAttribute('placeholder', trans[key]);
+      }
+    });
+    
+    // 隐藏语言菜单
+    document.getElementById('languageMenu').classList.add('hidden');
+    
+    // 如果是中文，更新警告信息
+    if (lang === 'zh') {
+      window.alert = function(message) {
+        console.log("Alert (zh):", message);
+        return originalAlert(message);
+      };
+    }
+  }
+
+  // 保存原始alert函数
+  const originalAlert = window.alert;
+
+  // 切换菜单显示/隐藏
+  document.getElementById('menuButton').addEventListener('click', function(e) {
+    e.stopPropagation();
+    const menu = document.getElementById('languageMenu');
+    menu.classList.toggle('hidden');
+  });
+
+  // 点击页面其他区域隐藏菜单
+  document.addEventListener('click', function() {
+    document.getElementById('languageMenu').classList.add('hidden');
+  });
+
+  // 阻止菜单内部点击事件冒泡
+  document.getElementById('languageMenu').addEventListener('click', function(e) {
+    e.stopPropagation();
+  });
+
+  // 以下是原始代码，保持不变
+  let audioFiles = [];
+  let otoRecords = [];
+  let selectedIndex = -1;
+  let currentAudio = null;
+  let audioContext = null;
+  let currentSource = null;
+  let isPlaying = false;
+  let currentZip = null;
+  let currentFolderFiles = {};
+  let animationFrameId = null;
+  let isDragging = false;
+  let dragTarget = null;
+  let canvasRect = null;
+  let audioContextInitialized = false;
+  let selectedFolderPath = '';
+  let existingOtoData = null;
+
+  function initAudioContext() {
+    try {
+      window.AudioContext = window.AudioContext || window.webkitAudioContext;
+      audioContext = new AudioContext();
+      audioContextInitialized = true;
+    } catch (e) {
+      alert('您的浏览器不支持Web Audio API，无法使用音频功能');
+      console.error(e);
+    }
+  }
+
+  async function resumeAudioContext() {
+    if (!audioContext) {
+      initAudioContext();
+    }
+    if (audioContext && audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    bindEvents();
+    initCanvas();
+  });
+
+  function bindEvents() {
+    document.getElementById('zipUpload').addEventListener('change', handleZipUpload);
+    document.getElementById('folderSelect').addEventListener('change', handleFolderSelect);
+    document.getElementById('importBtn').addEventListener('click', handleImport);
+    document.getElementById('otoListBody').addEventListener('click', handleOtoItemClick);
+    document.getElementById('downloadOtoBtn').addEventListener('click', downloadOtoFile);
+    document.getElementById('updateTextBtn').addEventListener('click', updateEditorFromRecords);
+    document.getElementById('aiAnalyzeBtn').addEventListener('click', aiAnalyzeCurrent);
+    document.getElementById('aiAnalyzeAllBtn').addEventListener('click', aiAnalyzeAll);
+    document.getElementById('applyExistingOtoBtn').addEventListener('click', applyExistingOto);
+
+    const params = ['left', 'right', 'overlap', 'preutterance', 'fixed', 'velocity', 'alias'];
+    params.forEach(p => {
+      const s = document.getElementById(`${p}Slider`);
+      const i = document.getElementById(`${p}Input`);
+      if (s) s.addEventListener('input', e => { 
+        i.value = e.target.value; 
+        updateCurrentParam(p, e.target.value); 
+        validateParameters();
+      });
+      if (i) i.addEventListener('change', e => { 
+        if(s) s.value = e.target.value; 
+        updateCurrentParam(p, e.target.value); 
+        validateParameters();
+      });
+    });
+
+    document.getElementById('playBtn').addEventListener('click', playAudio);
+    document.getElementById('pauseBtn').addEventListener('click', pauseAudio);
+    document.getElementById('stopBtn').addEventListener('click', stopAudio);
+
+    const c = document.getElementById('waveformCanvas');
+    c.addEventListener('mousedown', handleCanvasMouseDown);
+    c.addEventListener('mousemove', handleCanvasMouseMove);
+    c.addEventListener('mouseup', handleCanvasMouseUp);
+    c.addEventListener('mouseleave', handleCanvasMouseUp);
+    c.addEventListener('touchstart', handleCanvasTouchStart, { passive: false });
+    c.addEventListener('touchmove', handleCanvasTouchMove, { passive: false });
+    c.addEventListener('touchend', handleCanvasTouchEnd);
+    c.addEventListener('touchcancel', handleCanvasTouchEnd);
+
+    window.addEventListener('resize', () => { initCanvas(); if(currentAudio) drawWaveform(); });
+  }
+
+  function initCanvas() {
+    const c = document.getElementById('waveformCanvas');
+    const r = c.getBoundingClientRect();
+    c.width = r.width * devicePixelRatio;
+    c.height = r.height * devicePixelRatio;
+    const ctx = c.getContext('2d');
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    canvasRect = r;
+  }
+
+  function resetAllData() {
+    audioFiles = [];
+    otoRecords = [];
+    selectedIndex = -1;
+    currentAudio = null;
+    currentSource = null;
+    isPlaying = false;
+    currentZip = null;
+    currentFolderFiles = {};
+    selectedFolderPath = '';
+    existingOtoData = null;
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+    isDragging = false;
+    dragTarget = null;
+    document.getElementById('otoListBody').innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-gray-500" data-i18n="noOtoRecords">请先导入音源压缩包</td></tr>';
+    document.getElementById('downloadOtoBtn').disabled = true;
+    document.getElementById('aiAnalyzeBtn').disabled = true;
+    document.getElementById('aiAnalyzeAllBtn').disabled = true;
+    document.getElementById('playBtn').disabled = true;
+    document.getElementById('pauseBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = true;
+    document.getElementById('updateTextBtn').disabled = true;
+    document.getElementById('applyExistingOtoBtn').classList.add('hidden');
+    document.getElementById('otoEditor').value = '';
+    updateParamEditor();
+    initCanvas();
+    hideAllSectionsExceptImport();
+  }
+
+  function hideAllSectionsExceptImport() {
+    document.getElementById('otoListSection').classList.add('hidden-initial');
+    document.getElementById('editSection').classList.add('hidden-initial');
+    document.getElementById('exportSection').classList.add('hidden-initial');
+  }
+
+  function showAllSections() {
+    document.getElementById('otoListSection').classList.remove('hidden-initial');
+    document.getElementById('editSection').classList.remove('hidden-initial');
+    document.getElementById('exportSection').classList.remove('hidden-initial');
+  }
+
+  async function handleZipUpload(e) {
+    const file = e.target.files[0];
+    if (!file || !file.name.endsWith('.zip')) { 
+      alert('请上传ZIP格式的压缩包'); 
+      return; 
+    }
+    
+    resetAllData();
+    
+    try {
+      const zip = new JSZip();
+      currentZip = await zip.loadAsync(file);
+      
+      const folders = new Set();
+      const folderWavCount = {};
+      
+      currentZip.forEach((path, ent) => {
+        if (ent.dir) return;
+        
+        const parts = path.split('/');
+        const fileName = parts.pop();
+        const folderPath = parts.join('/') || '根目录';
+        
+        if (fileName.toLowerCase().endsWith('.wav')) {
+          folders.add(folderPath);
+          if (!folderWavCount[folderPath]) folderWavCount[folderPath] = 0;
+          folderWavCount[folderPath]++;
+        }
+      });
+      
+      if (folders.size === 0) {
+        alert('压缩包中未找到WAV文件');
+        return;
+      }
+      
+      const folderSelect = document.getElementById('folderSelect');
+      folderSelect.innerHTML = '<option value="">' + translations[currentLanguage].selectFolderPlaceholder + '</option>';
+      
+      folders.forEach(folder => {
+        const option = document.createElement('option');
+        option.value = folder;
+        option.textContent = `${folder} (${folderWavCount[folder] || 0}个WAV文件)`;
+        folderSelect.appendChild(option);
+      });
+      
+      document.getElementById('folderSelectContainer').classList.remove('hidden');
+      document.getElementById('importBtnContainer').classList.remove('hidden');
+      
+    } catch (e) {
+      alert('解压ZIP文件失败，请检查文件是否损坏');
+      console.error(e);
+    }
+  }
+
+  function handleFolderSelect(e) {
+    selectedFolderPath = e.target.value;
+  }
+
+  async function handleImport() {
+    if (!selectedFolderPath) {
+      alert('请先选择文件夹');
+      return;
+    }
+    
+    if (!currentZip) {
+      alert('请先上传压缩包');
+      return;
+    }
+    
+    try {
+      currentFolderFiles = {};
+      const prefix = selectedFolderPath === '根目录' ? '' : selectedFolderPath + '/';
+      
+      const files = [];
+      currentZip.forEach((path, ent) => {
+        if (ent.dir) return;
+        if (path.startsWith(prefix)) {
+          const relativePath = path.replace(prefix, '');
+          files.push({ path: relativePath, entry: ent });
+        }
+      });
+      
+      if (files.length === 0) {
+        alert('所选文件夹中没有文件');
+        return;
+      }
+      
+      if (!audioContext) {
+        initAudioContext();
+      }
+      
+      audioFiles = [];
+      otoRecords = [];
+      existingOtoData = null;
+      
+      for (const file of files) {
+        if (file.path.toLowerCase() === 'oto.ini') {
+          const buf = await file.entry.async('arraybuffer');
+          const text = new TextDecoder().decode(buf);
+          existingOtoData = parseOtoIni(text);
+          continue;
+        }
+        
+        if (file.path.toLowerCase().endsWith('.wav')) {
+          const buf = await file.entry.async('arraybuffer');
+          try {
+            const abuf = await audioContext.decodeAudioData(buf.slice(0));
+            const fileName = file.path.split('/').pop();
+            audioFiles.push({ 
+              fileName: fileName, 
+              fullPath: file.path,
+              baseName: fileName.replace(/\.wav$/i, ''), 
+              arrayBuffer: buf, 
+              audioBuffer: abuf 
+            });
+          } catch (decodeError) { 
+            console.warn(`解码音频文件失败: ${file.path}`, decodeError); 
+          }
+        }
+      }
+      
+      if (audioFiles.length === 0) {
+        alert('所选文件夹中没有WAV文件或无法解码');
+        return;
+      }
+      
+      otoRecords = audioFiles.map(af => ({
+        fileName: af.fileName, 
+        fullPath: af.fullPath,
+        alias: af.baseName, 
+        left: 0, 
+        right: 0, 
+        overlap: 0, 
+        preutterance: 0, 
+        fixed: 0,
+        velocity: 100
+      }));
+      
+      otoRecords.sort((a, b) => a.fileName.localeCompare(b.fileName, 'ja', { sensitivity: 'accent' }));
+      
+      if (existingOtoData && existingOtoData.length > 0) {
+        document.getElementById('applyExistingOtoBtn').classList.remove('hidden');
+      }
+      
+      renderOtoList();
+      showAllSections();
+      document.getElementById('downloadOtoBtn').disabled = false;
+      document.getElementById('updateTextBtn').disabled = false;
+      document.getElementById('aiAnalyzeAllBtn').disabled = false;
+      
+      updateEditorFromRecords();
+      
+      alert(`成功导入 ${audioFiles.length} 个音频文件${existingOtoData ? '，检测到现有oto.ini配置' : ''}`);
+    } catch (e) { 
+      alert('导入音源失败，请检查文件格式'); 
+      console.error(e); 
+    }
+  }
+
+  function parseOtoIni(content) {
+    const records = [];
+    const lines = content.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      
+      const parts = trimmed.split('=');
+      if (parts.length !== 2) continue;
+      
+      const fileName = parts[0].trim();
+      const params = parts[1].split(',');
+      if (params.length < 6) continue;
+      
+      const alias = params[0].trim();
+      const left = Math.max(0, parseFloat(params[1]) || 0);
+      const right = Math.max(0, parseFloat(params[2]) || 0);
+      const overlap = Math.max(0, parseFloat(params[3]) || 0);
+      const preutterance = Math.max(0, parseFloat(params[4]) || 0);
+      const fixed = Math.max(0, parseFloat(params[5]) || 0);
+      const velocity = params.length >= 7 ? Math.max(5, Math.min(400, parseFloat(params[6]) || 100)) : 100;
+      
+      records.push({
+        fileName: fileName,
+        alias: alias,
+        left: left,
+        right: right,
+        overlap: overlap,
+        preutterance: preutterance,
+        fixed: fixed,
+        velocity: velocity
+      });
+    }
+    
+    return records;
+  }
+
+  function applyExistingOto() {
+    if (!existingOtoData || existingOtoData.length === 0) {
+      alert('没有现有的oto.ini配置可用');
+      return;
+    }
+    
+    let appliedCount = 0;
+    
+    for (const otoItem of existingOtoData) {
+      const record = otoRecords.find(r => r.fileName === otoItem.fileName);
+      if (record) {
+        record.alias = otoItem.alias;
+        record.left = otoItem.left;
+        record.right = otoItem.right;
+        record.overlap = otoItem.overlap;
+        record.preutterance = otoItem.preutterance;
+        record.fixed = otoItem.fixed;
+        record.velocity = otoItem.velocity;
+        appliedCount++;
+      }
+    }
+    
+    renderOtoList();
+    if (selectedIndex !== -1) {
+      updateParamEditor();
+      if (currentAudio) drawWaveform();
+    }
+    updateEditorFromRecords();
+    
+    alert(`已应用 ${appliedCount}/${existingOtoData.length} 条现有oto.ini配置`);
+  }
+
+  function renderOtoList() {
+    const tb = document.getElementById('otoListBody');
+    if (otoRecords.length === 0) { 
+      tb.innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-gray-500" data-i18n="noOtoRecords">请先导入音源压缩包</td></tr>'; 
+      return; 
+    }
+    tb.innerHTML = otoRecords.map((it, i) => `
+<tr class="oto-item hover:bg-gray-50 cursor-pointer ${selectedIndex === i ? 'oto-item-selected' : ''}" data-index="${i}">
+  <td class="px-3 py-2 text-sm">${it.alias}</td>
+  <td class="px-3 py-2 text-sm">${it.fileName}</td>
+  <td class="px-3 py-2 text-sm">${it.left.toFixed(1)}</td>
+  <td class="px-3 py-2 text-sm">${it.right.toFixed(1)}</td>
+  <td class="px-3 py-2 text-sm">${it.overlap.toFixed(1)}</td>
+  <td class="px-3 py-2 text-sm">${it.preutterance.toFixed(1)}</td>
+  <td class="px-3 py-2 text-sm">${it.fixed.toFixed(1)}</td>
+  <td class="px-3 py-2 text-sm">${it.velocity.toFixed(1)}</td>
+</tr>`).join('');
+  }
+
+  function handleOtoItemClick(e) {
+    const tr = e.target.closest('.oto-item');
+    if (!tr) return;
+    selectedIndex = parseInt(tr.dataset.index);
+    renderOtoList();
+    loadSelectedAudio();
+    updateParamEditor();
+    validateParameters();
+  }
+
+  function loadSelectedAudio() {
+    if (selectedIndex === -1) return;
+    const rec = otoRecords[selectedIndex];
+    const af = audioFiles.find(f => f.fullPath === rec.fullPath);
+    if (!af) return;
+    currentAudio = af.audioBuffer;
+    initCanvas();
+    drawWaveform();
+    updateSliderMax();
+    document.getElementById('playBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = false;
+    document.getElementById('aiAnalyzeBtn').disabled = false;
+  }
+
+  function updateSliderMax() {
+    if (!currentAudio) return;
+    const duration = currentAudio.duration * 1000;
+    
+    const leftSlider = document.getElementById('leftSlider');
+    const rightSlider = document.getElementById('rightSlider');
+    const fixedSlider = document.getElementById('fixedSlider');
+    const preutteranceSlider = document.getElementById('preutteranceSlider');
+    
+    if (leftSlider) {
+      leftSlider.max = duration - 0.1;
+    }
+    if (rightSlider) {
+      rightSlider.max = duration - 0.1;
+    }
+    if (fixedSlider) {
+      fixedSlider.max = duration;
+    }
+    if (preutteranceSlider) {
+      preutteranceSlider.max = duration;
+    }
+  }
+
+  function updateParamEditor() {
+    if (selectedIndex === -1) {
+      ['left', 'right', 'overlap', 'preutterance', 'fixed', 'velocity', 'alias'].forEach(p => {
+        const s = document.getElementById(`${p}Slider`);
+        const i = document.getElementById(`${p}Input`);
+        if (s) s.value = p === 'velocity' ? 100 : 0; 
+        if (i) i.value = p === 'velocity' ? 100 : '';
+      });
+      return;
+    }
+    const it = otoRecords[selectedIndex];
+    const map = { 
+      left: it.left, 
+      right: it.right, 
+      overlap: it.overlap, 
+      preutterance: it.preutterance, 
+      fixed: it.fixed, 
+      velocity: it.velocity, 
+      alias: it.alias 
+    };
+    for (const p in map) {
+      const s = document.getElementById(`${p}Slider`);
+      const i = document.getElementById(`${p}Input`);
+      if (s) s.value = map[p]; 
+      if (i) i.value = map[p];
+    }
+  }
+
+  function updateCurrentParam(p, val) {
+    if (selectedIndex === -1) return;
+    const v = p === 'alias' ? val : (parseFloat(val) || 0);
+    
+    otoRecords[selectedIndex][p] = v;
+    renderOtoList();
+    if (currentAudio) drawWaveform();
+  }
+
+  function validateParameters() {
+    if (selectedIndex === -1) return;
+    
+    const item = otoRecords[selectedIndex];
+    const duration = currentAudio ? currentAudio.duration * 1000 : 0;
+    let hasErrors = false;
+    
+    const errors = {
+      left: '',
+      right: '',
+      overlap: '',
+      preutterance: '',
+      fixed: '',
+      velocity: ''
+    };
+    
+    if (item.left < 0) {
+      errors.left = 'L不能为负数';
+      hasErrors = true;
+    } else if (duration > 0 && item.left >= duration) {
+      errors.left = `L必须小于音频长度(${duration.toFixed(1)}ms)`;
+      hasErrors = true;
+    }
+    
+    if (item.right < 0) {
+      errors.right = 'R不能为负数';
+      hasErrors = true;
+    } else if (duration > 0 && item.right >= duration) {
+      errors.right = `R必须小于音频长度(${duration.toFixed(1)}ms)`;
+      hasErrors = true;
+    }
+    
+    if (item.overlap < 0) {
+      errors.overlap = 'O不能为负数';
+      hasErrors = true;
+    } else if (item.overlap >= item.preutterance) {
+      errors.overlap = 'O必须小于P';
+      hasErrors = true;
+    }
+    
+    if (item.preutterance < 0) {
+      errors.preutterance = 'P不能为负数';
+      hasErrors = true;
+    } else if (item.preutterance <= item.overlap) {
+      errors.preutterance = 'P必须大于O';
+      hasErrors = true;
+    } else if (duration > 0 && item.preutterance >= duration) {
+      errors.preutterance = `P必须小于音频有效长度`;
+      hasErrors = true;
+    }
+    
+    if (item.fixed < 0) {
+      errors.fixed = 'F不能为负数';
+      hasErrors = true;
+    } else if (duration > 0 && item.fixed >= duration) {
+      errors.fixed = 'F必须小于音频有效长度';
+      hasErrors = true;
+    }
+    
+    if (item.velocity < 5) {
+      errors.velocity = 'V必须≥5';
+      hasErrors = true;
+    } else if (item.velocity > 400) {
+      errors.velocity = 'V必须≤400';
+      hasErrors = true;
+    }
+    
+    Object.keys(errors).forEach(param => {
+      const errorEl = document.getElementById(`${param}Error`);
+      const inputEl = document.getElementById(`${param}Input`);
+      const sliderEl = document.getElementById(`${param}Slider`);
+      
+      if (errors[param]) {
+        errorEl.textContent = errors[param];
+        errorEl.classList.remove('hidden');
+        if (inputEl) inputEl.classList.add('param-error');
+        if (sliderEl) sliderEl.classList.add('param-error');
+      } else {
+        errorEl.classList.add('hidden');
+        if (inputEl) inputEl.classList.remove('param-error');
+        if (sliderEl) sliderEl.classList.remove('param-error');
+      }
+    });
+    
+    return hasErrors;
+  }
+
+  function analyzeAudioForOto(audioBuffer) {
+    const channelData = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+    const duration = audioBuffer.duration;
+    const frameSize = Math.floor(sampleRate * 0.01);
+    const frameCount = Math.floor(channelData.length / frameSize);
+    const frameEnergies = [];
+    const frameAmplitudes = [];
+
+    for (let i = 0; i < frameCount; i++) {
+      let energy = 0, amplitudeSum = 0, count = 0;
+      const start = i * frameSize;
+      const end = Math.min(start + frameSize, channelData.length);
+      for (let j = start; j < end; j++) {
+        const val = channelData[j];
+        energy += val * val;
+        amplitudeSum += Math.abs(val);
+        count++;
+      }
+      frameEnergies.push(Math.sqrt(energy / count));
+      frameAmplitudes.push(amplitudeSum / count);
+    }
+
+    const silenceThreshold = 0.01;
+    let startFrame = 0;
+    for (let i = 0; i < frameCount; i++) {
+      if (frameEnergies[i] > silenceThreshold) {
+        startFrame = i;
+        break;
+      }
+    }
+    const left = startFrame * 10;
+
+    const energyDiffs = [];
+    for (let i = 1; i < frameCount; i++) {
+      energyDiffs.push(frameEnergies[i] - frameEnergies[i-1]);
+    }
+    
+    let maxDropIdx = startFrame;
+    let maxDrop = 0;
+    for (let i = startFrame + 1; i < Math.min(startFrame + 50, frameCount - 1); i++) {
+      const drop = energyDiffs[i] < 0 ? -energyDiffs[i] : 0;
+      if (drop > maxDrop) {
+        maxDrop = drop;
+        maxDropIdx = i;
+      }
+    }
+    
+    const preutterance = Math.max(1, (maxDropIdx - startFrame) * 10);
+    const overlap = Math.max(0, Math.min(preutterance - 0.1, preutterance * 0.3));
+
+    const conWindowSize = 5;
+    let minStdDev = Infinity;
+    let conFrame = maxDropIdx;
+    for (let i = maxDropIdx; i < frameCount - conWindowSize; i++) {
+      const window = frameAmplitudes.slice(i, i + conWindowSize);
+      const mean = window.reduce((a, b) => a + b, 0) / conWindowSize;
+      const stdDev = Math.sqrt(window.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / conWindowSize);
+      if (stdDev < minStdDev) {
+        minStdDev = stdDev;
+        conFrame = i;
+      }
+    }
+    const fixed = Math.max(0, (conFrame - startFrame) * 10);
+
+    let endFrame = frameCount - 1;
+    for (let i = frameCount - 1; i > maxDropIdx; i--) {
+      if (frameEnergies[i] < silenceThreshold) {
+        endFrame = i;
+        break;
+      }
+    }
+    const right = Math.max(0, (frameCount - endFrame) * 10);
+
+    return { 
+      left: left,
+      right: right,
+      overlap: overlap,
+      preutterance: preutterance,
+      fixed: fixed,
+      velocity: 100
+    };
+  }
+
+  async function aiAnalyzeCurrent() {
+    if (selectedIndex === -1) {
+      alert('请先选择要分析的音频条目');
+      return;
+    }
+    
+    const btn = document.getElementById('aiAnalyzeBtn');
+    btn.disabled = true;
+    btn.textContent = '分析中...';
+    
+    try {
+      const item = otoRecords[selectedIndex];
+      const af = audioFiles.find(f => f.fullPath === item.fullPath);
+      if (!af) {
+        alert('未找到对应的音频文件');
+        return;
+      }
+      
+      const otoParams = analyzeAudioForOto(af.audioBuffer);
+      Object.assign(item, otoParams);
+      
+      renderOtoList();
+      updateParamEditor();
+      if (currentAudio) drawWaveform();
+      alert('AI分析完成！已自动设置当前音频的oto参数');
+    } catch (e) {
+      alert('AI分析失败，请检查音频文件');
+      console.error(e);
+    } finally {
+      btn.disabled = false;
+      setLanguage(currentLanguage);
+    }
+  }
+
+  async function aiAnalyzeAll() {
+    if (otoRecords.length === 0) {
+      alert('没有可分析的oto记录');
+      return;
+    }
+    
+    const btn = document.getElementById('aiAnalyzeAllBtn');
+    btn.disabled = true;
+    btn.textContent = '批量分析中...';
+    
+    try {
+      for (let i = 0; i < otoRecords.length; i++) {
+        const item = otoRecords[i];
+        const af = audioFiles.find(f => f.fullPath === item.fullPath);
+        if (!af) continue;
+        
+        const otoParams = analyzeAudioForOto(af.audioBuffer);
+        Object.assign(item, otoParams);
+        
+        renderOtoList();
+        if (i === otoRecords.length - 1) {
+          updateParamEditor();
+          if (currentAudio) drawWaveform();
+        }
+      }
+      alert(`已完成${otoRecords.length}条记录的AI分析`);
+    } catch (e) {
+      alert('批量分析失败，请检查音频文件');
+      console.error(e);
+    } finally {
+      btn.disabled = false;
+      setLanguage(currentLanguage);
+    }
+  }
+
+  function drawWaveform(playbackTime = 0) {
+    if (!currentAudio) return;
+    const canvas = document.getElementById('waveformCanvas');
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width / devicePixelRatio;
+    const height = canvas.height / devicePixelRatio;
+    ctx.clearRect(0, 0, width, height);
+    const channelData = currentAudio.getChannelData(0);
+    const duration = currentAudio.duration;
+    ctx.fillStyle = '#f9fafb'; 
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = '#e5e7eb'; 
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) { 
+      const y = (height/4)*i; 
+      ctx.beginPath(); 
+      ctx.moveTo(0,y); 
+      ctx.lineTo(width,y); 
+      ctx.stroke(); 
+    }
+    for (let i = 0; i <= 10; i++) { 
+      const x = (width/10)*i; 
+      ctx.beginPath(); 
+      ctx.moveTo(x,0); 
+      ctx.lineTo(x,height); 
+      ctx.stroke(); 
+    }
+    ctx.strokeStyle = '#3b82f6'; 
+    ctx.lineWidth = 1; 
+    ctx.beginPath();
+    const step = Math.max(1, Math.floor(channelData.length / width));
+    const amp = height/2;
+    for (let i = 0; i < width; i++) {
+      const start = i*step; 
+      const end = Math.min(start+step, channelData.length);
+      let min = 1, max = -1;
+      for (let j = start; j < end; j++) { 
+        const val = channelData[j]; 
+        if (val < min) min = val; 
+        if (val > max) max = val; 
+      }
+      const yMin = amp + min*amp*0.8; 
+      const yMax = amp + max*amp*0.8;
+      if (i === 0) { 
+        ctx.moveTo(i, yMin); 
+        ctx.lineTo(i, yMax); 
+      } else { 
+        ctx.lineTo(i, yMin); 
+        ctx.lineTo(i, yMax); 
+      }
+    }
+    ctx.stroke();
+    if (selectedIndex === -1) return;
+    const item = otoRecords[selectedIndex];
+    const durationMs = duration * 1000;
+    
+    const leftSec = item.left/1000;
+    const rightSec = item.right/1000;
+    const preutteranceSec = item.preutterance/1000;
+    const overlapSec = item.overlap/1000;
+    const fixedSec = item.fixed/1000;
+    
+    const timeToX = t => (t/duration)*width;
+    
+    const xLeft = timeToX(leftSec);
+    const xRight = timeToX(duration - rightSec);
+    const xPre = timeToX(leftSec + preutteranceSec);
+    const xOverlap = timeToX(leftSec + preutteranceSec - overlapSec);
+    const xFixed = timeToX(leftSec + fixedSec);
+    
+    ctx.fillStyle = 'rgba(219,39,119,0.1)'; 
+    ctx.fillRect(xLeft, 0, xFixed - xLeft, height);
+    ctx.fillStyle = 'rgba(156,163,175,0.1)'; 
+    ctx.fillRect(xFixed, 0, xRight - xFixed, height);
+    
+    const drawLine = (x, color, label) => { 
+      ctx.strokeStyle = color; 
+      ctx.lineWidth = 2; 
+      ctx.beginPath(); 
+      ctx.moveTo(x,0); 
+      ctx.lineTo(x,height); 
+      ctx.stroke(); 
+      ctx.fillStyle='#000'; 
+      ctx.font='12px sans-serif'; 
+      ctx.fillText(label, x+2,15); 
+    };
+    
+    drawLine(xLeft, '#1e40af', 'L'); 
+    drawLine(xRight, '#1e40af', 'R'); 
+    drawLine(xOverlap, '#16a34a', 'O'); 
+    drawLine(xPre, '#dc2626', 'P'); 
+    drawLine(xFixed, '#db2777', 'F');
+    
+    if (playbackTime > 0) { 
+      const xPlay = timeToX(playbackTime); 
+      ctx.strokeStyle='#f59e0b'; 
+      ctx.lineWidth=3; 
+      ctx.beginPath(); 
+      ctx.moveTo(xPlay,0); 
+      ctx.lineTo(xPlay,height); 
+      ctx.stroke(); 
+    }
+  }
+
+  function getDragTarget(x) {
+    if (selectedIndex === -1 || !currentAudio) return null;
+    const item = otoRecords[selectedIndex];
+    const duration = currentAudio.duration;
+    const width = canvasRect.width;
+    const durationMs = duration * 1000;
+    
+    const timeToX = t => (t/duration)*width;
+    
+    const lines = [
+      { name: 'left', x: timeToX(item.left/1000), threshold: 10 },
+      { name: 'right', x: timeToX(duration - item.right/1000), threshold: 10 },
+      { name: 'overlap', x: timeToX(item.left/1000 + item.preutterance/1000 - item.overlap/1000), threshold: 10 },
+      { name: 'preutterance', x: timeToX(item.left/1000 + item.preutterance/1000), threshold: 10 },
+      { name: 'fixed', x: timeToX(item.left/1000 + item.fixed/1000), threshold: 10 }
+    ];
+    
+    let closest = null, minDist = Infinity;
+    lines.forEach(line => { 
+      const dist = Math.abs(x - line.x); 
+      if (dist < line.threshold && dist < minDist) { 
+        minDist = dist; 
+        closest = line.name; 
+      } 
+    });
+    return closest;
+  }
+
+  function handleCanvasMouseDown(e) { 
+    const x = e.clientX - canvasRect.left; 
+    dragTarget = getDragTarget(x); 
+    if (dragTarget) { 
+      isDragging = true; 
+      e.preventDefault(); 
+    } 
+  }
+  function handleCanvasMouseMove(e) { 
+    if (!isDragging || !dragTarget) return; 
+    const x = e.clientX - canvasRect.left; 
+    updateDrag(dragTarget, x); 
+    e.preventDefault(); 
+  }
+  function handleCanvasMouseUp() { 
+    isDragging = false; 
+    dragTarget = null; 
+  }
+  function handleCanvasTouchStart(e) { 
+    const t = e.touches[0]; 
+    const x = t.clientX - canvasRect.left; 
+    dragTarget = getDragTarget(x); 
+    if (dragTarget) { 
+      isDragging = true; 
+      e.preventDefault(); 
+    } 
+  }
+  function handleCanvasTouchMove(e) { 
+    if (!isDragging || !dragTarget) return; 
+    const t = e.touches[0]; 
+    const x = t.clientX - canvasRect.left; 
+    updateDrag(dragTarget, x); 
+    e.preventDefault(); 
+  }
+  function handleCanvasTouchEnd() { 
+    isDragging = false; 
+    dragTarget = null; 
+  }
+
+  function updateDrag(tg, x) {
+    if (!currentAudio) return;
+    const item = otoRecords[selectedIndex];
+    const duration = currentAudio.duration;
+    const width = canvasRect.width;
+    const timeMs = (x/width)*duration*1000;
+    
+    switch (tg) {
+      case 'left': 
+        item.left = Math.max(0, Math.min(duration*1000 - 0.1, timeMs)); 
+        break;
+      case 'right': 
+        item.right = Math.max(0, Math.min(duration*1000 - 0.1, duration*1000 - timeMs)); 
+        break;
+      case 'overlap': 
+        item.overlap = Math.max(0, Math.min(item.preutterance - 0.1, (item.left + item.preutterance) - timeMs)); 
+        break;
+      case 'preutterance': 
+        const newPre = Math.max(item.overlap + 0.1, Math.min(duration*1000, timeMs - item.left));
+        item.preutterance = newPre;
+        if (item.overlap >= newPre) {
+          item.overlap = Math.max(0, newPre - 0.1);
+        }
+        break;
+      case 'fixed': 
+        item.fixed = Math.max(0, Math.min(duration*1000, timeMs - item.left)); 
+        break;
+    }
+    renderOtoList(); 
+    updateParamEditor(); 
+    validateParameters();
+    drawWaveform();
+  }
+
+  async function playAudio() {
+    if (!currentAudio || selectedIndex === -1 || isPlaying) return;
+    
+    await resumeAudioContext();
+    
+    const item = otoRecords[selectedIndex];
+    const duration = currentAudio.duration;
+    const startTime = item.left/1000;
+    const endTime = duration - item.right/1000;
+    
+    if (currentSource) {
+      try { currentSource.stop(); } catch(e) {}
+      currentSource = null;
+    }
+    
+    currentSource = audioContext.createBufferSource();
+    currentSource.buffer = currentAudio;
+    currentSource.connect(audioContext.destination);
+    currentSource.start(0, startTime, endTime - startTime);
+    isPlaying = true;
+    document.getElementById('playBtn').disabled = true; 
+    document.getElementById('pauseBtn').disabled = false; 
+    document.getElementById('stopBtn').disabled = false;
+    
+    const playStartTime = audioContext.currentTime;
+    
+    function updateProgress() {
+      if (!isPlaying) return;
+      const currentTime = audioContext.currentTime - playStartTime + startTime;
+      if (currentTime >= endTime) { 
+        stopAudio(); 
+        return; 
+      }
+      drawWaveform(currentTime); 
+      animationFrameId = requestAnimationFrame(updateProgress);
+    }
+    
+    updateProgress();
+    
+    currentSource.onended = () => { 
+      isPlaying = false; 
+      cancelAnimationFrame(animationFrameId); 
+      document.getElementById('playBtn').disabled = false; 
+      document.getElementById('pauseBtn').disabled = true; 
+      drawWaveform(); 
+    };
+  }
+
+  function pauseAudio() {
+    if (!isPlaying || !currentSource) return;
+    currentSource.stop();
+    isPlaying = false;
+    document.getElementById('playBtn').disabled = false; 
+    document.getElementById('pauseBtn').disabled = true;
+    cancelAnimationFrame(animationFrameId);
+  }
+
+  function stopAudio() {
+    if (currentSource) { 
+      try { 
+        currentSource.stop(); 
+      } catch(e) {} 
+      currentSource = null; 
+    }
+    isPlaying = false; 
+    cancelAnimationFrame(animationFrameId);
+    document.getElementById('playBtn').disabled = false; 
+    document.getElementById('pauseBtn').disabled = true; 
+    document.getElementById('stopBtn').disabled = false;
+    drawWaveform();
+  }
+
+  function updateEditorFromRecords() {
+    const otoContent = generateOtoContent();
+    document.getElementById('otoEditor').value = otoContent;
+  }
+
+  function generateOtoContent() {
+    if (otoRecords.length === 0) { 
+      return ''; 
+    }
+    let otoContent = '';
+    otoRecords.forEach(item => {
+      otoContent += `${item.fileName}=${item.alias},${item.left.toFixed(1)},${item.right.toFixed(1)},${item.overlap.toFixed(1)},${item.preutterance.toFixed(1)},${item.fixed.toFixed(1)},${item.velocity.toFixed(1)}\r\n`;
+    });
+    return otoContent;
+  }
+
+  function downloadOtoFile() {
+    const otoContent = document.getElementById('otoEditor').value;
+    if (!otoContent.trim()) {
+      alert('oto.ini内容为空，无法下载');
+      return;
+    }
+    const blob = new Blob([otoContent], { type: 'text/plain;charset=utf-8' });
+    saveAs(blob, 'oto.ini');
+    alert('oto.ini已下载');
+  }
+</script>
+</body>
+</html>
